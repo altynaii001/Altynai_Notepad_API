@@ -1,42 +1,40 @@
-from passlib.context import CryptContext
 from datetime import datetime, timedelta
 from jose import JWTError, jwt
-from fastapi import Depends, HTTPException, status
+from passlib.context import CryptContext
+from fastapi import Depends, HTTPException
 from fastapi.security import OAuth2PasswordBearer
-from sqlmodel import Session, select
+from sqlmodel import select, Session
 from database import get_session
 from models import User
 
-# Пароль хештеу үшін bcrypt қолдану
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-# Токен жасау және тексеру үшін құпия сөз және алгоритм
-SECRET_KEY = "altow12"  # БҰЛ ЖЕРГЕ ӨЗ ҚҰПИЯҢДЫ ЖАЗ (кездейсоқ жол)
+# JWT баптаулары
+SECRET_KEY = "secret-key-jaz"  # Бұл жерге күрделі құпиясөз жаз!
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login")
+# Пароль хештеу
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-# Парольді хештеу
-def get_password_hash(password: str) -> str:
+def get_password_hash(password: str):
     return pwd_context.hash(password)
 
-# Парольді тексеру
-def verify_password(plain_password: str, hashed_password: str) -> bool:
+def verify_password(plain_password: str, hashed_password: str):
     return pwd_context.verify(plain_password, hashed_password)
 
-# JWT токен жасау
+# Токен генерациялау
 def create_access_token(data: dict, expires_delta: timedelta = None):
     to_encode = data.copy()
-    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
+    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=15))
     to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
-# Токен арқылы пайдаланушыны табу
-def get_current_user(token: str = Depends(oauth2_scheme), session: Session = Depends(get_session)) -> User:
+# OAuth2 схемасы
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login")
+
+# Қолданушыны токен арқылы алу
+def get_current_user(token: str = Depends(oauth2_scheme), session: Session = Depends(get_session)):
     credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
+        status_code=401,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
@@ -52,3 +50,11 @@ def get_current_user(token: str = Depends(oauth2_scheme), session: Session = Dep
     if user is None:
         raise credentials_exception
     return user
+from fastapi import Depends
+
+def require_role(required_role: str):
+    def role_checker(current_user: User = Depends(get_current_user)):
+        if current_user.role != required_role:
+            raise HTTPException(status_code=403, detail="Not enough permissions")
+        return current_user
+    return role_checker
